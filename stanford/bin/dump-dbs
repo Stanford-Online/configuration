@@ -1,0 +1,93 @@
+#!/bin/sh
+deployment="${DUMP_DB_DEPLOYMENT:-cme}"
+destination_root_base=${1:-/edx/var}
+destination_root=${destination_root_base}/data
+file_secrets=${DUMP_DB_SECRETS_FILE:-~/src/edx/configuration/etc/dump_dbs/cme.sh}
+if [ -e "${file_secrets}" ]; then
+    . "${file_secrets}"
+fi
+function dump_sql() {
+    deployment=${1}
+    name=${2}
+    hostname=${3}
+    username=${4}
+    password=${5}
+    file_sql="${destination_root}/${deployment}/sql/${name}-$(date +%Y%m%d-%s).sql"
+    mkdir -p "${destination_root}/${deployment}/sql"
+    ssh "${DUMP_DB_SSH_JUMP_HOST}" \
+        -l "${DUMP_DB_SSH_JUMP_USER}" -i "${DUMP_DB_SSH_JUMP_KEY}" \
+        "mysqldump --all-databases --skip-lock-tables \
+        -h'${hostname}' -u'${username}' -p'${password}'" \
+    > "${file_sql}"
+    gzip --keep --best --force "${file_sql}"
+    mv "${file_sql}.gz" "${destination_root_base}/${deployment}-sql-${name}-$(date +%Y%m%d-%s).sql.gz"
+}
+function dump_mongo() {
+    deployment=${1}
+    name=${2}
+    hostname=${3}
+    username=${4}
+    password=${5}
+    port=${6}
+    database=${7}
+    mongodump \
+        -h "${hostname}" \
+        -d "${database}" \
+        -u "${username}" \
+        -p "${password}" \
+        --port "${port}" \
+        -o "${destination_root}/${deployment}/" \
+    ;
+    archive_file="${destination_root_base}/${deployment}-mongodb-${name}-$(date +%Y-%m-%d-%s).tar.gz"
+    tar czvf "${archive_file}" \
+        -C "${destination_root_base}" \
+        --options='compression-level=9' \
+        "data/${deployment}/${database}" \
+    ;
+}
+if [ -n "${DUMP_DB_SQL_ANALYTICS_HOST}" ]; then
+    dump_sql "${deployment}" analytics \
+        "${DUMP_DB_SQL_ANALYTICS_HOST}" \
+        "${DUMP_DB_SQL_ANALYTICS_USER}" \
+        "${DUMP_DB_SQL_ANALYTICS_PASS}" \
+    ;
+fi
+if [ -n "${DUMP_DB_SQL_CSMH_HOST}" ]; then
+    dump_sql "${deployment}" csmh \
+        "${DUMP_DB_SQL_CSMH_HOST}" \
+        "${DUMP_DB_SQL_CSMH_USER}" \
+        "${DUMP_DB_SQL_CSMH_PASS}" \
+    ;
+fi
+if [ -n "${DUMP_DB_SQL_EDXAPP_HOST}" ]; then
+    dump_sql "${deployment}" edxapp \
+        "${DUMP_DB_SQL_EDXAPP_HOST}" \
+        "${DUMP_DB_SQL_EDXAPP_USER}" \
+        "${DUMP_DB_SQL_EDXAPP_PASS}" \
+    ;
+fi
+if [ -n "${DUMP_DB_SQL_XQUEUE_HOST}" ]; then
+    dump_sql "${deployment}" xqueue \
+        "${DUMP_DB_SQL_XQUEUE_HOST}" \
+        "${DUMP_DB_SQL_XQUEUE_USER}" \
+        "${DUMP_DB_SQL_XQUEUE_PASS}" \
+    ;
+fi
+if [ -n "${DUMP_DB_MONGO_EDXAPP_HOST}" ]; then
+    dump_mongo "${deployment}" edxapp \
+        "${DUMP_DB_MONGO_EDXAPP_HOST}" \
+        "${DUMP_DB_MONGO_EDXAPP_USER}" \
+        "${DUMP_DB_MONGO_EDXAPP_PASS}" \
+        "${DUMP_DB_MONGO_EDXAPP_PORT}" \
+        "${DUMP_DB_MONGO_EDXAPP_DATABASE}" \
+    ;
+fi
+if [ -n "${DUMP_DB_MONGO_FORUMS_HOST}" ]; then
+    dump_mongo "${deployment}" forums \
+        "${DUMP_DB_MONGO_FORUMS_HOST}" \
+        "${DUMP_DB_MONGO_FORUMS_USER}" \
+        "${DUMP_DB_MONGO_FORUMS_PASS}" \
+        "${DUMP_DB_MONGO_FORUMS_PORT}" \
+        "${DUMP_DB_MONGO_FORUMS_DATABASE}" \
+    ;
+fi
