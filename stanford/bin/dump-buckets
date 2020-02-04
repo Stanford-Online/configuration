@@ -1,0 +1,22 @@
+#!/bin/sh
+deployment="${DUMP_DB_DEPLOYMENT:-cme}"
+destination_root_base=${1:-/edx/var}
+destination_root=${destination_root_base}/files
+file_secrets=${DUMP_DB_SECRETS_FILE:-~/src/edx/configuration/etc/dump_dbs/cme.sh}
+if [ -e "${file_secrets}" ]; then
+    . "${file_secrets}"
+fi
+function sync_bucket() {
+    bucket_name=${1}
+    aws s3 sync "s3://${bucket_name}" "${destination_root}/${deployment}/${bucket_name}"
+    bucket_name_sanitized=$(echo "${bucket_name}" | sed 's@/.*$@@')
+    archive_file="${destination_root_base}/${deployment}-files-${bucket_name_sanitized}-$(date +%Y-%m-%d-%s).tar.gz"
+    tar czvf "${archive_file}" \
+        -C "${destination_root_base}" \
+        --options='compression-level=9' \
+        "files/${deployment}/${bucket_name_sanitized}" \
+    ;
+}
+for bucket in ${DUMP_S3_BUCKETS}; do
+    sync_bucket "${bucket}"
+done
